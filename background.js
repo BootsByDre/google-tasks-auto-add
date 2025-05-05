@@ -7,9 +7,13 @@ async function getAuthToken() {
   return new Promise((resolve, reject) => {
     chrome.identity.getAuthToken({ interactive: true }, (token) => {
       if (chrome.runtime.lastError) {
-        // Log the full error object for debugging
         console.error("OAuth Error:", chrome.runtime.lastError);
-        reject(new Error(`Authentication failed: ${chrome.runtime.lastError.message || JSON.stringify(chrome.runtime.lastError)}`));
+        // Check for specific errors like interactive sign-in required
+        if (chrome.runtime.lastError.message.includes("user interaction required")) {
+             reject(new Error("Authentication required. Please click the extension icon again to sign in."));
+        } else {
+             reject(new Error(`Authentication failed: ${chrome.runtime.lastError.message || JSON.stringify(chrome.runtime.lastError)}`));
+        }
       } else {
         resolve(token);
       }
@@ -17,17 +21,46 @@ async function getAuthToken() {
   });
 }
 
-// Function to create a task using the Google Tasks API
-async function createTask(accessToken, taskTitle, taskUrl) {
-  const apiUrl = "https://tasks.googleapis.com/tasks/v1/lists/@default/tasks"; // @default refers to the user's default task list
+// Function to fetch task lists from the Google Tasks API
+async function fetchTaskLists(accessToken) {
+    const apiUrl = "https://tasks.googleapis.com/tasks/v1/users/@me/lists"; // Endpoint to list task lists
+
+    try {
+        const response = await fetch(apiUrl, {
+            method: "GET",
+            headers: {
+                'Authorization': `Bearer ${accessToken}`
+            }
+        });
+
+        if (!response.ok) {
+            const errorBody = await response.json();
+            console.error("Google Tasks API Fetch Lists Error:", response.status, response.statusText, errorBody);
+            const errorMessage = errorBody.error ? (errorBody.error.message || JSON.stringify(errorBody.error)) : JSON.stringify(errorBody);
+            throw new Error(`API fetch lists error ${response.status}: ${errorMessage}`);
+        }
+
+        const taskLists = await response.json();
+        console.log("Successfully fetched task lists:", taskLists);
+        return taskLists.items || []; // Return the array of task lists
+    } catch (error) {
+        console.error("Error fetching task lists:", error);
+        throw error;
+    }
+}
+
+
+// Function to create a task in a specific list using the Google Tasks API
+async function createTaskInList(accessToken, taskListId, taskTitle, taskUrl) {
+  // API endpoint to create a task in a specific list
+  const apiUrl = `https://tasks.googleapis.com/tasks/v1/lists/${taskListId}/tasks`;
 
   const task = {
     title: taskTitle,
-    notes: taskUrl // Putting the URL back in the notes/description
+    notes: taskUrl // Putting the URL in the notes/description field
   };
 
-  // Log the task object being sent
-  console.log("Sending task data to API:", JSON.stringify(task));
+  console.log(`Sending task data to API for list ${taskListId}:`, JSON.stringify(task));
 
   try {
     const response = await fetch(apiUrl, {
@@ -40,88 +73,98 @@ async function createTask(accessToken, taskTitle, taskUrl) {
     });
 
     if (!response.ok) {
-      // Handle API errors
       const errorBody = await response.json();
-      console.error("Google Tasks API Error:", response.status, response.statusText, errorBody);
-      // Provide more detail in the error message
+      console.error("Google Tasks API Create Task Error:", response.status, response.statusText, errorBody);
       const errorMessage = errorBody.error ? (errorBody.error.message || JSON.stringify(errorBody.error)) : JSON.stringify(errorBody);
-      throw new Error(`API error ${response.status}: ${errorMessage}`);
+      throw new Error(`API create task error ${response.status}: ${errorMessage}`);
     }
 
     const createdTask = await response.json();
-    console.log("Task created successfully. API response:", createdTask); // Log the full response
+    console.log("Task created successfully. API response:", createdTask);
 
     return createdTask;
 
   } catch (error) {
     console.error("Error creating task:", error);
-    throw error; // Re-throw the error so the main catch block can handle the notification
+    throw error;
   }
 }
 
-// Listen for the browser action (extension icon) click
-chrome.action.onClicked.addListener(async (tab) => {
-  chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
-    const currentTab = tabs[0];
+// Listen for messages from the popup script
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    console.log("Received message from popup:", request);
 
-    if (currentTab) {
-      const pageTitle = currentTab.title;
-      const pageUrl = currentTab.url;
-
-      try {
-        // Get the OAuth2 access token
-        const accessToken = await getAuthToken();
-
-        // Create the task using the API
-        await createTask(accessToken, pageTitle, pageUrl);
-
-        // Show a success notification
-        chrome.notifications.create({
-          type: "basic",
-          iconUrl: "icons/icon128.png", // Ensure this path is correct
-          title: "Task Added",
-          message: `Added "${pageTitle}" to Google Tasks.`,
-          priority: 1
-        });
-
-      } catch (error) {
-        console.error("Failed to add task:", error);
-        // Show an error notification with a more detailed message
-        let userErrorMessage = "An unknown error occurred.";
-        if (error instanceof Error) {
-            userErrorMessage = error.message;
-        } else if (typeof error === 'string') {
-            userErrorMessage = error;
-        } else {
-            // Attempt to stringify other types of errors
+    // Use an immediately invoked async function to handle the asynchronous logic
+    (async () => {
+        if (request.action === "fetchTaskLists") {
             try {
-                userErrorMessage = JSON.stringify(error);
-            } catch (e) {
-                userErrorMessage = "Could not stringify error object.";
+                const accessToken = await getAuthToken();
+                const taskLists = await fetchTaskLists(accessToken);
+                sendResponse({ success: true, taskLists: taskLists });
+            } catch (error) {
+                console.error("Error handling fetchTaskLists message:", error);
+                sendResponse({ success: false, error: error.message });
             }
         }
 
-        chrome.notifications.create({
-          type: "basic",
-          iconUrl: "icons/icon128.png", // Ensure this path is correct
-          title: "Error Adding Task",
-          message: `Could not add task: ${userErrorMessage}`,
-          priority: 1
-        });
-      }
+        if (request.action === "createTaskInList") {
+            try {
+                // Get current tab info here in the background script
+                const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+                const currentTab = tabs[0];
 
-    } else {
-      console.error("Could not get active tab information.");
-      chrome.notifications.create({
-        type: "basic",
-        iconUrl: "icons/icon128.png", // Ensure this path is correct
-        title: "Error",
-        message: "Could not retrieve current tab information.",
-        priority: 1
-      });
-    }
-  });
+                if (!currentTab) {
+                     sendResponse({ success: false, error: "Could not get active tab information." });
+                     return; // Exit the async function
+                }
+
+                const pageTitle = currentTab.title;
+                const pageUrl = currentTab.url;
+                const taskListId = request.taskListId;
+
+                const accessToken = await getAuthToken();
+                await createTaskInList(accessToken, taskListId, pageTitle, pageUrl);
+
+                // Show a success notification
+                chrome.notifications.create({
+                  type: "basic",
+                  iconUrl: "icons/icon128.png", // Ensure this path is correct
+                  title: "Task Added",
+                  message: `Added "${pageTitle}" to Google Tasks.`,
+                  priority: 1
+                });
+
+                sendResponse({ success: true });
+
+            } catch (error) {
+                console.error("Error handling createTaskInList message:", error);
+                 // Show an error notification
+                let userErrorMessage = "An unknown error occurred.";
+                if (error instanceof Error) {
+                    userErrorMessage = error.message;
+                } else if (typeof error === 'string') {
+                    userErrorMessage = error;
+                } else {
+                    try {
+                        userErrorMessage = JSON.stringify(error);
+                    } catch (e) {
+                        userErrorMessage = "Could not stringify error object.";
+                    }
+                }
+                chrome.notifications.create({
+                  type: "basic",
+                  iconUrl: "icons/icon128.png", // Ensure this path is correct
+                  title: "Error Adding Task",
+                  message: `Could not add task: ${userErrorMessage}`,
+                  priority: 1
+                });
+
+                sendResponse({ success: false, error: error.message || userErrorMessage });
+            }
+        }
+    })(); // Immediately invoke the async function
+
+    return true; // Important: Indicates that sendResponse will be called asynchronously
 });
 
-// You will also need extension icons (e.g., icon16.png, icon48.png, icon128.png)
-// Add these to an 'icons' directory in the same location as your manifest.json and background.js
+// Removed the chrome.action.onClicked listener as the popup handles the interaction
