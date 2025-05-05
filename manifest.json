@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "Add to Google Tasks",
+  "version": "1.0",
+  "description": "Gets current tab info and adds a task to Google Tasks.",
+  "permissions": [
+    "activeTab",
+    "notifications",
+    "identity"  // Required for OAuth2
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": ""
+  },
+  "oauth2": {
+    "client_id": "1083733577571-qd2plf7h0uvkkcpsct1o1sg60m00jjgc.apps.googleusercontent.com", // Replace with your Client ID
+    "scopes": [
+      "https://www.googleapis.com/auth/tasks" // Scope for Google Tasks access
+    ]
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
