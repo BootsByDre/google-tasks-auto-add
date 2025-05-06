@@ -30,6 +30,17 @@
             border-radius: 4px;
             background-color: #ffffff;
             color: #333333;
+            box-sizing: border-box; /* Add this */
+        }
+        input, textarea {
+            width: 100%;
+            padding: 5px;
+            margin-bottom: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            background-color: #ffffff;
+            color: #333333;
+            box-sizing: border-box; /* Add this */
         }
         button {
             background-color: #4285F4; /* Google Blue */
@@ -62,10 +73,10 @@
             h2 {
                 color: #ffffff; /* White color for headings in dark mode */
             }
-            select {
+            select, input, textarea {
                 border-color: #555; /* Darker border */
-                background-color: #333333; /* Darker background for select */
-                color: #cccccc; /* Light text for select */
+                background-color: #333333; /* Darker background */
+                color: #cccccc; /* Light text */
             }
             button {
                 background-color: #3c78d8; /* Slightly darker Google Blue for dark mode */
@@ -88,7 +99,14 @@
     <select id="taskList">
         <option value="">Loading lists...</option>
     </select>
-    <button id="addTaskButton">Add Task</button>
+
+    <label for="taskTitle">Title:</label>
+    <input type="text" id="taskTitle" placeholder="Task title">
+
+    <label for="taskNotes">Notes (URL):</label>
+    <textarea id="taskNotes" rows="3" placeholder="Task notes or URL"></textarea>
+
+    <button id="addTaskButton" disabled>Add Task</button> <!-- Start disabled -->
     <div id="status"></div>
 
     <script src="popup.js"></script>

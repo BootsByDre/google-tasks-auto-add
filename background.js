@@ -49,15 +49,15 @@ async function fetchTaskLists(accessToken) {
     }
 }
 
-
 // Function to create a task in a specific list using the Google Tasks API
-async function createTaskInList(accessToken, taskListId, taskTitle, taskUrl) {
+// Renamed parameters for clarity
+async function createTaskInList(accessToken, taskListId, title, notes) {
   // API endpoint to create a task in a specific list
   const apiUrl = `https://tasks.googleapis.com/tasks/v1/lists/${taskListId}/tasks`;
 
   const task = {
-    title: taskTitle,
-    notes: taskUrl // Putting the URL in the notes/description field
+    title: title, // Use the title passed from the popup
+    notes: notes // Use the notes passed from the popup
   };
 
   console.log(`Sending task data to API for list ${taskListId}:`, JSON.stringify(task));
@@ -109,28 +109,26 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
         if (request.action === "createTaskInList") {
             try {
-                // Get current tab info here in the background script
-                const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-                const currentTab = tabs[0];
+                // Get task details directly from the request message
+                const taskListId = request.taskListId;
+                const taskTitle = request.taskTitle; // Get title from message
+                const taskNotes = request.taskNotes; // Get notes from message
 
-                if (!currentTab) {
-                     sendResponse({ success: false, error: "Could not get active tab information." });
+                if (!taskListId || !taskTitle) {
+                     sendResponse({ success: false, error: "Missing task list ID or title." });
                      return; // Exit the async function
                 }
 
-                const pageTitle = currentTab.title;
-                const pageUrl = currentTab.url;
-                const taskListId = request.taskListId;
-
                 const accessToken = await getAuthToken();
-                await createTaskInList(accessToken, taskListId, pageTitle, pageUrl);
+                // Pass the title and notes received from the popup
+                await createTaskInList(accessToken, taskListId, taskTitle, taskNotes);
 
-                // Show a success notification
+                // Show a success notification (use the title from the request)
                 chrome.notifications.create({
                   type: "basic",
                   iconUrl: "icons/icon128.png", // Ensure this path is correct
                   title: "Task Added",
-                  message: `Added "${pageTitle}" to Google Tasks.`,
+                  message: `Added "${taskTitle}" to Google Tasks.`, // Use the provided title
                   priority: 1
                 });
 
